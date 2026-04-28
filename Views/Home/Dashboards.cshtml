@@ -1,0 +1,266 @@
+@{
+    ViewData["Title"] = "Dashboards";
+}
+
+<div class="page-title-area">
+    <p class="subtitle">Powered by Fabric</p>
+    <h1>Dashboards</h1>
+    <hr class="title-divider" />
+</div>
+
+<div class="row g-4 pb-4" style="position:relative;z-index:1;">
+    <div class="col-12">
+        <div class="dashboard-card shadow-sm mb-4 animate-in" style="margin-right: 420px;">
+            <div class="card-body">
+                <h5 class="card-title">HR Analytics</h5>
+                <div id="hrReportContainer" style="width:100%;height:600px;"></div>
+            </div>
+        </div>
+    </div>
+    <div class="col-12">
+        <div class="dashboard-card shadow-sm mb-4 animate-in" style="margin-right: 420px;">
+            <div class="card-body">
+                <h5 class="card-title">Sales Overview</h5>
+                <div id="salesReportContainer" style="width:100%;height:600px;"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Chat FAB button -->
+<button id="chatToggle" onclick="document.getElementById('chatPopup').classList.toggle('d-none')"
+        class="chat-fab"
+        style="position:fixed;bottom:24px;right:24px;z-index:1050;width:56px;height:56px;border-radius:50%;border:none;font-size:24px;cursor:pointer;"
+        title="Data Agent Chat">&#128172;</button>
+
+<!-- Chat popup -->
+<div id="chatPopup" class="d-none" style="position:fixed;bottom:90px;right:24px;z-index:1050;width:400px;height:550px;display:flex;flex-direction:column;">
+    <div class="card chat-popup-card shadow" style="height:100%;display:flex;flex-direction:column;overflow:hidden;">
+        <div class="chat-header d-flex justify-content-between align-items-center px-3 py-2">
+            <div>
+                <small class="text-slate" style="font-size:0.65rem;text-transform:uppercase;letter-spacing:2px;">Powered by Fabric</small>
+                <h6 class="mb-0" style="color:var(--text-bright);">Data Assistant</h6>
+            </div>
+            <button type="button" class="btn-close btn-close-white btn-sm" onclick="document.getElementById('chatPopup').classList.add('d-none')"></button>
+        </div>
+        <div id="chatMessages" class="card-body p-3 chat-messages" style="flex:1;overflow-y:auto;max-height:420px;">
+            <p class="text-slate text-center mt-4" id="chatPlaceholder">Ask about attendance, departments, overtime, leave, sales, or revenue</p>
+        </div>
+        <div class="p-2" style="background:var(--bg-surface);border-top:1px solid var(--border-dim);">
+            <div class="input-group">
+                <input type="text" class="form-control form-control-sm chat-input" placeholder="Type a message..." id="chatInput" />
+                <button class="btn btn-sm chat-send-btn" type="button" id="chatSend">&#10148;</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+<!-- Power BI JS SDK & MSAL (served locally to avoid tracking prevention blocks) -->
+<script src="~/lib/powerbi.min.js"></script>
+<script src="~/lib/msal-browser.min.js"></script>
+<script>
+    // ─── Configuration ───────────────────────────────────────
+    // TODO: Replace with your Azure AD App Registration client ID
+    const CLIENT_ID   = "YOUR_CLIENT_ID_HERE";
+    const TENANT_ID   = "YOUR_TENANT_ID_HERE";
+    const AUTHORITY   = `https://login.microsoftonline.com/${TENANT_ID}`;
+    const PBI_SCOPES  = ["https://analysis.windows.net/powerbi/api/Report.Read.All"];
+
+    const REPORTS = [
+        { containerId: "hrReportContainer",    reportId: "YOUR_HR_REPORT_ID" },
+        { containerId: "salesReportContainer",  reportId: "YOUR_SALES_REPORT_ID" },
+    ];
+
+    // Shared state: active filters from all embedded reports
+    window.activeDashboardFilters = [];
+
+    // ─── MSAL setup ──────────────────────────────────────────
+    const msalInstance = new msal.PublicClientApplication({
+        auth: { clientId: CLIENT_ID, authority: AUTHORITY, redirectUri: window.location.origin },
+        cache: { cacheLocation: "sessionStorage" },
+    });
+
+    async function getAccessToken() {
+        const accounts = msalInstance.getAllAccounts();
+        const request = { scopes: PBI_SCOPES, account: accounts[0] };
+        try {
+            if (accounts.length) {
+                const resp = await msalInstance.acquireTokenSilent(request);
+                return resp.accessToken;
+            }
+            const resp = await msalInstance.acquireTokenPopup({ scopes: PBI_SCOPES });
+            return resp.accessToken;
+        } catch (err) {
+            console.error("Token acquisition failed:", err);
+            const resp = await msalInstance.acquireTokenPopup({ scopes: PBI_SCOPES });
+            return resp.accessToken;
+        }
+    }
+
+    // ─── Filter capture ──────────────────────────────────────
+    async function captureFilters(report) {
+        const filters = [];
+
+        try {
+            // Report-level filters
+            const reportFilters = await report.getFilters();
+            for (const f of reportFilters) {
+                if (f.filterType === 1 && f.values && f.values.length) { // BasicFilter
+                    filters.push({ table: f.target.table, column: f.target.column, operator: f.operator, values: f.values });
+                } else if (f.filterType === 2 && f.conditions && f.conditions.length) { // AdvancedFilter
+                    filters.push({ table: f.target.table, column: f.target.column, operator: "advanced", conditions: f.conditions });
+                }
+            }
+
+            // Page-level filters
+            const pages = await report.getPages();
+            const activePage = pages.find(p => p.isActive);
+            if (activePage) {
+                const pageFilters = await activePage.getFilters();
+                for (const f of pageFilters) {
+                    if (f.filterType === 1 && f.values && f.values.length) {
+                        filters.push({ table: f.target.table, column: f.target.column, operator: f.operator, values: f.values });
+                    } else if (f.filterType === 2 && f.conditions && f.conditions.length) {
+                        filters.push({ table: f.target.table, column: f.target.column, operator: "advanced", conditions: f.conditions });
+                    }
+                }
+
+                // Slicer states
+                const visuals = await activePage.getVisuals();
+                const slicers = visuals.filter(v => v.type === "slicer");
+                for (const slicer of slicers) {
+                    try {
+                        const state = await slicer.getSlicerState();
+                        if (state.filters) {
+                            for (const f of state.filters) {
+                                if (f.filterType === 1 && f.values && f.values.length) {
+                                    filters.push({ table: f.target.table, column: f.target.column, operator: f.operator, values: f.values });
+                                }
+                            }
+                        }
+                    } catch (e) { /* slicer may not support getSlicerState */ }
+                }
+            }
+        } catch (err) {
+            console.warn("Filter capture error:", err);
+        }
+
+        return filters;
+    }
+
+    async function refreshAllFilters() {
+        const allFilters = [];
+        for (const r of embeddedReports) {
+            const f = await captureFilters(r);
+            allFilters.push(...f);
+        }
+        window.activeDashboardFilters = allFilters;
+        console.log("Active dashboard filters:", allFilters);
+    }
+
+    // ─── Embed reports ───────────────────────────────────────
+    const models = window['powerbi-client'].models;
+    const embeddedReports = [];
+
+    async function embedReports() {
+        const token = await getAccessToken();
+
+        for (const cfg of REPORTS) {
+            const container = document.getElementById(cfg.containerId);
+            const embedConfig = {
+                type: "report",
+                id: cfg.reportId,
+                embedUrl: `https://app.fabric.microsoft.com/reportEmbed?reportId=${cfg.reportId}`,
+                accessToken: token,
+                tokenType: models.TokenType.Aad,
+                settings: {
+                    panes: { filters: { visible: true }, pageNavigation: { visible: true } },
+                },
+            };
+
+            const report = powerbi.embed(container, embedConfig);
+            embeddedReports.push(report);
+
+            // Capture filters after each render (user interaction with slicers/filters)
+            report.on("rendered", () => refreshAllFilters());
+        }
+    }
+
+    // Embed on page load (MSAL v2 is ready immediately after construction)
+    embedReports().catch(err => {
+        console.error("Embed failed:", err);
+        document.getElementById('hrReportContainer').innerHTML = '<p style="color:#ef4444;padding:1rem;">Failed to embed reports: ' + err.message + '</p>';
+    });
+
+    // ─── Chat logic ──────────────────────────────────────────
+    const chatMessages = document.getElementById('chatMessages');
+    const chatInput = document.getElementById('chatInput');
+    const chatSend = document.getElementById('chatSend');
+    const chatPlaceholder = document.getElementById('chatPlaceholder');
+
+    function renderMarkdown(text) {
+        text = text.replace(/【[^】]*】/g, '');
+        text = text.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+        text = text.replace(/(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)/g, '<em>$1</em>');
+        text = text.replace(/(\d+)\.\s+/g, '<br/>$1. ');
+        text = text.replace(/\n/g, '<br/>');
+        return text.trim();
+    }
+
+    function addMessage(text, sender, badge) {
+        if (chatPlaceholder) chatPlaceholder.remove();
+        const wrapper = document.createElement('div');
+        wrapper.style.cssText = 'clear:both;overflow:hidden;margin-bottom:10px;';
+        const div = document.createElement('div');
+        if (sender === 'You') {
+            div.className = 'msg-user';
+            div.innerHTML = text;
+        } else {
+            div.className = 'msg-agent';
+            const badgeHtml = badge
+                ? `<div style="margin-bottom:6px;"><span class="badge">${badge}</span></div>`
+                : '';
+            div.innerHTML = badgeHtml + renderMarkdown(text);
+        }
+        wrapper.appendChild(div);
+        chatMessages.appendChild(wrapper);
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+    }
+
+    async function sendMessage() {
+        const msg = chatInput.value.trim();
+        if (!msg) return;
+
+        addMessage(msg, 'You');
+        chatInput.value = '';
+        chatSend.disabled = true;
+        chatInput.disabled = true;
+
+        try {
+            const res = await fetch('http://localhost:8090/chat', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    message: msg,
+                    active_filters: window.activeDashboardFilters
+                })
+            });
+            const data = await res.json();
+            const badge = data.routed_to ? `via ${data.routed_to}` : null;
+            addMessage(data.answer, 'Agent', badge);
+        } catch (err) {
+            addMessage('Error: Could not reach the agent API.', 'Agent');
+        } finally {
+            chatSend.disabled = false;
+            chatInput.disabled = false;
+            chatInput.focus();
+        }
+    }
+
+    chatSend.addEventListener('click', sendMessage);
+    chatInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') sendMessage();
+    });
+</script>
+}

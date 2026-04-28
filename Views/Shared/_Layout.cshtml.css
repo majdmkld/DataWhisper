@@ -1,0 +1,41 @@
+﻿/* Scoped layout styles — kept minimal; main theme is in site.css */
+
+a.navbar-brand {
+  white-space: normal;
+  text-align: center;
+  word-break: break-all;
+}
+
+a {
+  color: var(--accent, #38bdf8);
+}
+
+.nav-pills .nav-link.active, .nav-pills .show > .nav-link {
+  color: #fff;
+  background-color: var(--accent, #38bdf8);
+  border-color: var(--accent-vivid, #06b6d4);
+}
+
+.border-top {
+  border-top: 1px solid var(--border-dim, rgba(56,189,248,0.10));
+}
+.border-bottom {
+  border-bottom: 1px solid var(--border-dim, rgba(56,189,248,0.10));
+}
+
+.box-shadow {
+  box-shadow: 0 .25rem .75rem rgba(0, 0, 0, .15);
+}
+
+button.accept-policy {
+  font-size: 1rem;
+  line-height: inherit;
+}
+
+.footer {
+  position: absolute;
+  bottom: 0;
+  width: 100%;
+  white-space: nowrap;
+  line-height: 60px;
+}
