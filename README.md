@@ -1,8 +1,57 @@
-# DataWhisper
+<p align="center">
+  <img src="docs/img/logo.png" alt="DataWhisper logo" width="160" />
+</p>
 
-A custom .NET portal that embeds Power BI reports alongside an AI-powered multi-agent data assistant. The assistant is context-aware — it respects any filters or slicers the user applies to the embedded dashboards, ensuring answers are always scoped to the data currently visible on screen.
+<h1 align="center">DataWhisper</h1>
 
-## Architecture
+<p align="center">
+  <em>A filter-aware, multi-agent data assistant for Microsoft Fabric — embedded right next to your Power BI reports.</em>
+</p>
+
+---
+
+DataWhisper is a .NET portal that pairs **embedded Power BI dashboards** with an **Azure AI Foundry multi-agent assistant**. A `RouterAgent` classifies each question and delegates to the right Fabric Data Agent (`HRAgent`, `SalesAgent`, …), while the chat UI watches your dashboard filters in real time so every answer is scoped to the data you're actually looking at.
+
+---
+
+## ✨ Features
+
+### 🧭 Multi-agent routing with a guided start
+A `RouterAgent` reads each question and forwards it to the correct specialist (HR or Sales). Users land on the **Data Agent** page with starter prompts — *"How many employees are in Engineering?"*, *"Total sales last quarter?"* — so they can explore without facing a blank page.
+
+![Router Agent landing page](docs/img/01-router-agent.png)
+
+### 📊 Embedded Power BI + side-docked chat
+The **Dashboards** page embeds your published Power BI reports using the Power BI JS SDK and "User Owns Data" auth (MSAL.js). A floating **Data Assistant** slides in from the right, so analysts can question the data without ever leaving the report.
+
+![Dashboards with Data Assistant](docs/img/02-dashboards-assistant.png)
+
+### 🧮 Auto-rendered tables & charts
+Agent responses are inspected for structured data and rendered as either an interactive table or a Chart.js visualization. Each answer is tagged with the **specialist agent**, the **render type**, and the **row count** so users always know where the result came from.
+
+![Salary breakdown rendered as a table](docs/img/03-salary-table.png)
+
+![Top-selling products rendered as a bar chart](docs/img/04-sales-chart.png)
+
+### 🎯 Filter-aware grounding *(the headline feature)*
+Whenever the user changes a slicer, page filter, or report filter, the Power BI JS SDK pushes the new state to `window.activeDashboardFilters`. Every chat call serializes those filters into a natural-language constraint that the specialist agent must respect when generating DAX.
+
+The agent will **refuse to answer outside the active scope** and tell the user how to widen the filter — no silent hallucinations.
+
+![Agent refuses Oxford while filter excludes it](docs/img/05-filter-block.png)
+
+Add the missing value to the slicer and ask again — the answer updates instantly:
+
+![Agent answers once Oxford is in scope](docs/img/06-filter-allow.png)
+
+### 🔐 Enterprise auth out of the box
+- Azure AD (Entra ID) user tokens via **MSAL.js** (`acquireTokenPopup` / `acquireTokenSilent`)
+- Power BI **"Embed for your organization"** model — RLS still applies
+- Backend uses `DefaultAzureCredential` for Foundry agent calls
+
+---
+
+## 🏗️ Architecture
 
 ```
 ┌─────────────────────────────────────────────────────┐
@@ -33,12 +82,6 @@ A custom .NET portal that embeds Power BI reports alongside an AI-powered multi-
                           │  (Fabric)   (Fabric)      │
                           └─────────────────────────┘
 ```
-
-**Key features:**
-- **Multi-agent routing** — A RouterAgent classifies each question and forwards it to the appropriate specialist (HR or Sales)
-- **Fabric Data Agents** — Specialist agents are grounded on Microsoft Fabric semantic models
-- **Real-time filter awareness** — Dashboard filters/slicers are captured via the Power BI JS SDK and passed to the agent so answers respect the user's current view
-- **Chart extraction** — Agent responses are analyzed for chartable data and rendered as interactive Chart.js visualizations
 
 ## Prerequisites
 
@@ -158,14 +201,16 @@ DataWhisper/
 │   └── Shared/
 │       ├── _Layout.cshtml     # Main layout with navigation
 │       └── Error.cshtml
-└── wwwroot/
-    ├── css/site.css
-    ├── js/site.js
-    └── lib/
-        ├── powerbi.min.js     # Power BI JS SDK (local)
-        ├── msal-browser.min.js # MSAL.js (local)
-        ├── bootstrap/
-        └── jquery/
+├── wwwroot/
+│   ├── css/site.css
+│   ├── js/site.js
+│   └── lib/
+│       ├── powerbi.min.js     # Power BI JS SDK (local)
+│       ├── msal-browser.min.js # MSAL.js (local)
+│       ├── bootstrap/
+│       └── jquery/
+└── docs/
+    └── img/                    # Logo + feature screenshots used in this README
 ```
 
 ## Embedding Details
