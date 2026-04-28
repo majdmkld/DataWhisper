@@ -2,8 +2,6 @@
   <img src="docs/img/logo.png" alt="DataWhisper logo" width="160" />
 </p>
 
-<h1 align="center">DataWhisper</h1>
-
 <p align="center">
   <em>A filter-aware, multi-agent data assistant for Microsoft Fabric — embedded right next to your Power BI reports.</em>
 </p>
